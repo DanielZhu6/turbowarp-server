@@ -4,7 +4,8 @@ const PORT = process.env.PORT || 8080;
 const wss = new WebSocket.Server({ port: PORT });
 console.log(`Multi-room WebSocket server running on port ${PORT}`);
 
-const rooms = {}; // roomName -> Set of sockets
+// Map: roomName -> Set of sockets
+const rooms = {};
 
 wss.on("connection", socket => {
   socket.room = null;
@@ -13,22 +14,29 @@ wss.on("connection", socket => {
     try {
       const msgObj = JSON.parse(data);
 
-      // Handle room join
+      // Handle join messages
       if(msgObj.type === "join" && msgObj.room){
         const roomName = msgObj.room;
         socket.room = roomName;
         if(!rooms[roomName]) rooms[roomName] = new Set();
         rooms[roomName].add(socket);
-        console.log(`Client joined room ${roomName}, total: ${rooms[roomName].size}`);
+
+        // Send acknowledgment
+        socket.send(JSON.stringify({ type: "join_ack", room: roomName }));
+
+        console.log(`Client joined room ${roomName}. Total clients: ${rooms[roomName].size}`);
         return;
       }
 
-      // Handle message
+      // Handle messages only if socket has a room
       if(msgObj.type === "message" && socket.room){
-        const sanitized = String(msgObj.message).replace(/[<>&\u0000-\u001F]/g,"").slice(0,500);
+        const sanitized = String(msgObj.message)
+          .replace(/[<>&\u0000-\u001F]/g,"")
+          .slice(0,500);
+
         rooms[socket.room].forEach(client => {
           if(client.readyState === WebSocket.OPEN){
-            client.send(JSON.stringify({ message: sanitized }));
+            client.send(JSON.stringify({ type: "message", message: sanitized }));
           }
         });
       }
@@ -41,7 +49,7 @@ wss.on("connection", socket => {
   socket.on("close", () => {
     if(socket.room && rooms[socket.room]){
       rooms[socket.room].delete(socket);
-      console.log(`Client left room ${socket.room}, total: ${rooms[socket.room].size}`);
+      console.log(`Client left room ${socket.room}. Total clients: ${rooms[socket.room].size}`);
     }
   });
 
