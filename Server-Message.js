@@ -1,30 +1,54 @@
 const WebSocket = require("ws");
 
-// Use PORT from environment (Render sets this) or 8080 locally
 const PORT = process.env.PORT || 8080;
-
 const server = new WebSocket.Server({ port: PORT });
 
-console.log(`WebSocket server running on port ${PORT}`);
+console.log(`Multi-room WebSocket server running on port ${PORT}`);
 
-// Keep track of connected clients
+// Map: roomName -> Set of sockets
+const rooms = {};
+
 server.on("connection", socket => {
-  console.log("Client connected. Total clients:", server.clients.size);
+  socket.room = null;
 
-  socket.on("message", message => {
-    let msg = String(message); // convert everything to string
-    msg = msg.replace(/[<>&\u0000-\u001F]/g, "").slice(0, 500); // sanitize
+  // Client sends JSON message
+  socket.on("message", data => {
+    try {
+      const msgObj = JSON.parse(data);
 
-    // Broadcast to all connected clients
-    server.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(msg);
+      // Room join message
+      if(msgObj.type === "join") {
+        const roomName = msgObj.room;
+        socket.room = roomName;
+        if(!rooms[roomName]) rooms[roomName] = new Set();
+        rooms[roomName].add(socket);
+        console.log(`Client joined room ${roomName}. Total: ${rooms[roomName].size}`);
+        return;
       }
-    });
+
+      // Chat/message broadcast
+      if(socket.room && msgObj.type === "message") {
+        const sanitized = String(msgObj.message)
+          .replace(/[<>&\u0000-\u001F]/g,"")
+          .slice(0,500);
+
+        rooms[socket.room].forEach(client => {
+          if(client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({ message: sanitized }));
+          }
+        });
+      }
+
+    } catch(e) {
+      console.error("Invalid message:", data);
+    }
   });
 
   socket.on("close", () => {
-    console.log("Client disconnected. Total clients:", server.clients.size);
+    if(socket.room && rooms[socket.room]) {
+      rooms[socket.room].delete(socket);
+      console.log(`Client left room ${socket.room}. Total: ${rooms[socket.room].size}`);
+    }
   });
 
   socket.on("error", err => {
