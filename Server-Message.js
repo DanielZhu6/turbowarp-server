@@ -14,26 +14,22 @@ wss.on("connection", socket => {
     try {
       const msgObj = JSON.parse(data);
 
-      // Handle join messages
       if(msgObj.type === "join" && msgObj.room){
         const roomName = msgObj.room;
         socket.room = roomName;
+
         if(!rooms[roomName]) rooms[roomName] = new Set();
         rooms[roomName].add(socket);
 
         // Send acknowledgment
         socket.send(JSON.stringify({ type: "join_ack", room: roomName }));
-
         console.log(`Client joined room ${roomName}. Total clients: ${rooms[roomName].size}`);
         return;
       }
 
-      // Handle messages only if socket has a room
+      // Only broadcast to sockets in the same room
       if(msgObj.type === "message" && socket.room){
-        const sanitized = String(msgObj.message)
-          .replace(/[<>&\u0000-\u001F]/g,"")
-          .slice(0,500);
-
+        const sanitized = String(msgObj.message).replace(/[<>&\u0000-\u001F]/g,"").slice(0,500);
         rooms[socket.room].forEach(client => {
           if(client.readyState === WebSocket.OPEN){
             client.send(JSON.stringify({ type: "message", message: sanitized }));
@@ -53,7 +49,5 @@ wss.on("connection", socket => {
     }
   });
 
-  socket.on("error", err => {
-    console.error("Socket error:", err);
-  });
+  socket.on("error", err => console.error("Socket error:", err));
 });
